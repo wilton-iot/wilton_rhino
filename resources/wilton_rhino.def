@@ -1,0 +1,6 @@
+
+EXPORTS
+    JNI_OnLoad
+    JNI_OnUnload
+    Java_net_wiltontoolkit_WiltonJni_wiltoncall
+    Java_net_wiltontoolkit_WiltonJni_wiltoninit
