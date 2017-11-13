@@ -29,7 +29,6 @@ if ( STATICLIB_TOOLCHAIN MATCHES "windows_.+" )
 endif ( )
 
 add_library ( ${PROJECT_NAME} SHARED
-        ${CMAKE_CURRENT_LIST_DIR}/src/jni_utils.cpp
         ${CMAKE_CURRENT_LIST_DIR}/src/wiltoncall_rhino.cpp
         ${${PROJECT_NAME}_RESFILE}
         ${${PROJECT_NAME}_DEFFILE} )

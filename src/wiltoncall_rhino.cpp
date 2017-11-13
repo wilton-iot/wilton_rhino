@@ -8,6 +8,7 @@
 #include <atomic>
 #include <memory>
 #include <string>
+#include <tuple>
 
 #include "jni.h"
 
@@ -31,20 +32,32 @@ namespace rhino {
 
 namespace { // anonymous
 
-std::atomic<bool>& static_jvm_active() {
-    static std::atomic<bool> flag{false};
-    return flag;
-}
+std::atomic_bool static_jvm_active{false};
 
 // forward declaration
-JNIEnv* get_jni_env();
+class jni_ctx;
+
+JNIEnv* get_jni_env(JavaVM* vm);
+
+// std::tuple<JNIEnv*, std::shared_ptr<jni_ctx>> get_jni_env_with_ctx();
+// end forward declaration
 
 class global_ref_deleter {
 public:
     void operator()(jobject ref) {
-        if (static_jvm_active().load()) {
-            get_jni_env()->DeleteGlobalRef(ref);
+        // some JVMTI machinery needed to call DeleteLocalRef safely during the shutdown
+        // the below approach won't work, just doing no-op here instead
+        (void) ref;
+        /*
+        if (static_jvm_active.load(std::memory_order_acquire)) {
+            try {
+                auto tp = get_jni_env_with_ctx();
+                std::get<0>(tp)->DeleteGlobalRef(ref);
+            } catch(const std::exception&) {
+                // cannot get JNIEnv as JVM is already destroyed
+            }
         }
+        */
     }
 };
 
@@ -115,14 +128,13 @@ public:
     }
 };
 
-jni_ctx& static_jni_ctx() {
+std::shared_ptr<jni_ctx> static_jni_ctx(JavaVM* vm = nullptr) {
     // will be destructed in JNI_OnUnload
-    static jni_ctx* ctx = new jni_ctx();
-    return *ctx;
+    static auto ctx = std::make_shared<jni_ctx>(vm);
+    return ctx;
 }
 
-JNIEnv* get_jni_env() {
-    JavaVM* vm = static_jni_ctx().vm;
+JNIEnv* get_jni_env(JavaVM* vm) {
     JNIEnv* env;
     auto getenv_err = vm->GetEnv(reinterpret_cast<void**> (std::addressof(env)), WILTON_JNI_VERSION);
     switch (getenv_err) {
@@ -138,9 +150,17 @@ JNIEnv* get_jni_env() {
     }
 }
 
-std::string describe_java_exception(JNIEnv* env, jthrowable exc) {
-    jobject umsg = env->CallStaticObjectMethod(static_jni_ctx().wiltonJniClass.get(),
-            static_jni_ctx().describeThrowableMethod, exc);
+/*
+std::tuple<JNIEnv*, std::shared_ptr<jni_ctx>> get_jni_env_with_ctx() {
+    auto ctx = static_jni_ctx();
+    auto env = get_jni_env(ctx->vm);
+    return std::make_tuple(env, std::move(ctx));
+}
+*/
+
+std::string describe_java_exception(jni_ctx& ctx, JNIEnv* env, jthrowable exc) {
+    jobject umsg = env->CallStaticObjectMethod(ctx.wiltonJniClass.get(),
+            ctx.describeThrowableMethod, exc);
     if (!env->ExceptionCheck()) {
         std::string res = jstring_to_str(env, static_cast<jstring>(umsg));
         env->DeleteLocalRef(umsg);
@@ -166,12 +186,12 @@ void dump_error(const std::string& directory, const std::string& msg) {
 } // namespace
 
 support::buffer runscript(sl::io::span<const char> data) {
-    jni_ctx& ctx = static_jni_ctx();
-    JNIEnv* env = get_jni_env();
+    auto ctx = static_jni_ctx();
+    JNIEnv* env = get_jni_env(ctx->vm);
     auto json_in = std::string(data.data(), data.size());
     jstring json_ustr = env->NewStringUTF(json_in.c_str());
-    jobject res = env->CallObjectMethod(ctx.wiltonGatewayObject.get(),
-            ctx.runScriptMethod, json_ustr);
+    jobject res = env->CallObjectMethod(ctx->wiltonGatewayObject.get(),
+            ctx->runScriptMethod, json_ustr);
     env->DeleteLocalRef(json_ustr);
     jthrowable exc = env->ExceptionOccurred();
     if (nullptr == exc) {
@@ -183,7 +203,7 @@ support::buffer runscript(sl::io::span<const char> data) {
         }
     } else {
         env->ExceptionClear();
-        std::string trace = describe_java_exception(env, exc);
+        std::string trace = describe_java_exception(*ctx, env, exc);
         throw support::exception(TRACEMSG(trace));
     }
 }
@@ -195,10 +215,10 @@ extern "C" {
 
 jint JNICALL JNI_OnLoad(JavaVM* vm, void*) {
     try {
-        // move-assign static ctx
-        wilton::rhino::static_jni_ctx() = wilton::rhino::jni_ctx(vm);
+        // create shared ctx
+        wilton::rhino::static_jni_ctx(vm);
         // set init flag
-        wilton::rhino::static_jvm_active().store(true);
+        wilton::rhino::static_jvm_active.store(true, std::memory_order_release);
         return WILTON_JNI_VERSION;
     } catch (const std::exception& e) {
         wilton::rhino::dump_error(WILTON_STARTUP_ERR_DIR_STR, TRACEMSG(e.what() + "\nInitialization error"));
@@ -207,20 +227,20 @@ jint JNICALL JNI_OnLoad(JavaVM* vm, void*) {
 }
 
 // generally won't be called on most JVMs
-// as ctx holds a bunch of global refs
 void JNICALL JNI_OnUnload(JavaVM*, void*) {
-    delete std::addressof(wilton::rhino::static_jni_ctx());
     // flip init flag
-    wilton::rhino::static_jvm_active().store(false);
+    wilton::rhino::static_jvm_active.store(false, std::memory_order_release);
 }
 
 void JNICALL WILTON_JNI_FUNCTION(wiltoninit)
 (JNIEnv* env, jclass, jobject gateway, jstring config) {
+    auto ctx = wilton::rhino::static_jni_ctx();
     // check called once
     bool the_false = false;
-    static std::atomic<bool> initilized{false};
-    if (!initilized.compare_exchange_strong(the_false, true)) {
-        env->ThrowNew(wilton::rhino::static_jni_ctx().wiltonExceptionClass.get(),
+    static std::atomic_bool initilized{false};
+    if (!initilized.compare_exchange_strong(the_false, true, std::memory_order_acq_rel,
+            std::memory_order_relaxed)) {
+        env->ThrowNew(ctx->wiltonExceptionClass.get(),
                 TRACEMSG("'wiltoninit' was already called").c_str());
         return;
     }
@@ -228,7 +248,7 @@ void JNICALL WILTON_JNI_FUNCTION(wiltoninit)
     std::string conf = "";
     try {
         // set gateway
-        wilton::rhino::static_jni_ctx().set_gateway_object(env, gateway);
+        ctx->set_gateway_object(env, gateway);
         // wiltoncalls
         conf = wilton::rhino::jstring_to_str(env, config);
         auto err_init = wiltoncall_init(conf.c_str(), static_cast<int>(conf.length()));
@@ -237,7 +257,7 @@ void JNICALL WILTON_JNI_FUNCTION(wiltoninit)
         }
         wilton::support::register_wiltoncall("runscript_rhino", wilton::rhino::runscript);
     } catch (const std::exception& e) {
-        env->ThrowNew(wilton::rhino::static_jni_ctx().wiltonExceptionClass.get(),
+        env->ThrowNew(ctx->wiltonExceptionClass.get(),
                 TRACEMSG(e.what() + "\nWilton initialization error," +
                 " conf: [" + conf + "]").c_str());
     }
@@ -245,13 +265,14 @@ void JNICALL WILTON_JNI_FUNCTION(wiltoninit)
 
 jstring JNICALL WILTON_JNI_FUNCTION(wiltoncall)
 (JNIEnv* env, jclass, jstring name, jstring data) {
+    auto ctx = wilton::rhino::static_jni_ctx();
     if (nullptr == name) {
-        env->ThrowNew(wilton::rhino::static_jni_ctx().wiltonExceptionClass.get(),
+        env->ThrowNew(ctx->wiltonExceptionClass.get(),
                 TRACEMSG("Null 'name' parameter specified").c_str());
         return nullptr;
     }
     if (nullptr == data) {
-        env->ThrowNew(wilton::rhino::static_jni_ctx().wiltonExceptionClass.get(),
+        env->ThrowNew(ctx->wiltonExceptionClass.get(),
                 TRACEMSG("Null 'data' parameter specified").c_str());
         return nullptr;
     }
@@ -272,7 +293,7 @@ jstring JNICALL WILTON_JNI_FUNCTION(wiltoncall)
             return nullptr;
         }
     } else {
-        env->ThrowNew(wilton::rhino::static_jni_ctx().wiltonExceptionClass.get(), TRACEMSG(err + 
+        env->ThrowNew(ctx->wiltonExceptionClass.get(), TRACEMSG(err + 
                 "\n'wiltoncall' error for name: [" + name_string + "]").c_str());
         wilton_free(err);
         return nullptr;
