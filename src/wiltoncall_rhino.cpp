@@ -215,7 +215,7 @@ support::buffer runscript(sl::io::span<const char> data) {
             std::string res_str = wilton::rhino::jstring_to_str(env, static_cast<jstring> (res));
             return support::make_string_buffer(res_str);
         } else {
-            return support::make_empty_buffer();
+            return support::make_null_buffer();
         }
     } else {
         env->ExceptionClear();
