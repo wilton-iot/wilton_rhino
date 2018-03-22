@@ -48,7 +48,8 @@ namespace rhino {
 
 namespace { // anonymous
 
-std::atomic_bool static_jvm_active{false};
+std::atomic_flag initialized = ATOMIC_FLAG_INIT;
+//std::atomic_bool static_jvm_active{false};
 
 // forward declaration
 class jni_ctx;
@@ -144,6 +145,7 @@ public:
     }
 };
 
+// initialized from JNI_OnLoad
 std::shared_ptr<jni_ctx> static_jni_ctx(JavaVM* vm = nullptr) {
     // will be destructed in JNI_OnUnload
     static auto ctx = std::make_shared<jni_ctx>(vm);
@@ -234,7 +236,7 @@ jint JNICALL JNI_OnLoad(JavaVM* vm, void*) {
         // create shared ctx
         wilton::rhino::static_jni_ctx(vm);
         // set init flag
-        wilton::rhino::static_jvm_active.store(true, std::memory_order_release);
+        // wilton::rhino::static_jvm_active.store(true, std::memory_order_release);
         return WILTON_JNI_VERSION;
     } catch (const std::exception& e) {
         wilton::rhino::dump_error(WILTON_STARTUP_ERR_DIR_STR, TRACEMSG(e.what() + "\nInitialization error"));
@@ -245,17 +247,14 @@ jint JNICALL JNI_OnLoad(JavaVM* vm, void*) {
 // generally won't be called on most JVMs
 void JNICALL JNI_OnUnload(JavaVM*, void*) {
     // flip init flag
-    wilton::rhino::static_jvm_active.store(false, std::memory_order_release);
+    // wilton::rhino::static_jvm_active.store(false, std::memory_order_release);
 }
 
 void JNICALL WILTON_JNI_FUNCTION(wiltoninit)
 (JNIEnv* env, jclass, jobject gateway, jstring config) {
     auto ctx = wilton::rhino::static_jni_ctx();
     // check called once
-    bool the_false = false;
-    static std::atomic_bool initilized{false};
-    if (!initilized.compare_exchange_strong(the_false, true, std::memory_order_acq_rel,
-            std::memory_order_relaxed)) {
+    if (wilton::rhino::initialized.test_and_set(std::memory_order_acq_rel)) {
         env->ThrowNew(ctx->wiltonExceptionClass.get(),
                 TRACEMSG("'wiltoninit' was already called").c_str());
         return;
