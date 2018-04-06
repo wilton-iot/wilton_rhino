@@ -48,7 +48,7 @@ namespace rhino {
 
 namespace { // anonymous
 
-std::atomic_flag initialized = ATOMIC_FLAG_INIT;
+std::atomic_flag gateway_registered = ATOMIC_FLAG_INIT;
 //std::atomic_bool static_jvm_active{false};
 
 // forward declaration
@@ -250,30 +250,58 @@ void JNICALL JNI_OnUnload(JavaVM*, void*) {
     // wilton::rhino::static_jvm_active.store(false, std::memory_order_release);
 }
 
-void JNICALL WILTON_JNI_FUNCTION(wiltoninit)
-(JNIEnv* env, jclass, jobject gateway, jstring config) {
+void JNICALL WILTON_JNI_FUNCTION(initialize)
+(JNIEnv* env, jclass, jstring config) {
     auto ctx = wilton::rhino::static_jni_ctx();
-    // check called once
-    if (wilton::rhino::initialized.test_and_set(std::memory_order_acq_rel)) {
+    if (nullptr == config) {
         env->ThrowNew(ctx->wiltonExceptionClass.get(),
-                TRACEMSG("'wiltoninit' was already called").c_str());
+                TRACEMSG("Null 'config' parameter specified").c_str());
         return;
     }
-    
+
     std::string conf = "";
     try {
-        // set gateway
-        ctx->set_gateway_object(env, gateway);
-        // wiltoncalls
         conf = wilton::rhino::jstring_to_str(env, config);
         auto err_init = wiltoncall_init(conf.c_str(), static_cast<int>(conf.length()));
         if (nullptr != err_init) {
             wilton::support::throw_wilton_error(err_init, TRACEMSG(err_init));
         }
-        wilton::support::register_wiltoncall("runscript_rhino", wilton::rhino::runscript);
     } catch (const std::exception& e) {
         env->ThrowNew(ctx->wiltonExceptionClass.get(),
                 TRACEMSG(e.what() + "\nWilton initialization error," +
+                " conf: [" + conf + "]").c_str());
+    }
+}
+
+void JNICALL WILTON_JNI_FUNCTION(registerScriptGateway)
+(JNIEnv* env, jclass, jobject gateway, jstring engineName) {
+    auto ctx = wilton::rhino::static_jni_ctx();
+    if (nullptr == gateway) {
+        env->ThrowNew(ctx->wiltonExceptionClass.get(),
+                TRACEMSG("Null 'gateway' parameter specified").c_str());
+        return;
+    }
+    if (nullptr == engineName) {
+        env->ThrowNew(ctx->wiltonExceptionClass.get(),
+                TRACEMSG("Null 'engineName' parameter specified").c_str());
+        return;
+    }
+
+    // check called once
+    if (wilton::rhino::gateway_registered.test_and_set(std::memory_order_acq_rel)) {
+        env->ThrowNew(ctx->wiltonExceptionClass.get(),
+                TRACEMSG("Script gateway is already registered").c_str());
+        return;
+    }
+
+    std::string conf = "";
+    try {
+        ctx->set_gateway_object(env, gateway);
+        auto name = wilton::rhino::jstring_to_str(env, engineName);
+        wilton::support::register_wiltoncall("runscript_" + name, wilton::rhino::runscript);
+    } catch (const std::exception& e) {
+        env->ThrowNew(ctx->wiltonExceptionClass.get(),
+                TRACEMSG(e.what() + "\nWilton register error," +
                 " conf: [" + conf + "]").c_str());
     }
 }
