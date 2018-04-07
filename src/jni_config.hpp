@@ -38,12 +38,12 @@
 
 // name of the Java class that will expose `wiltoncall` method
 #ifndef WILTON_JNI_CLASS_NAME
-#define WILTON_JNI_CLASS_NAME net_wiltontoolkit_WiltonJni
+#define WILTON_JNI_CLASS_NAME wilton_WiltonJni
 #endif // WILTON_JNI_CLASS_NAME
 
 // signature of the Java class that will expose `wiltoncall` method
 #ifndef WILTON_JNI_CLASS_SIGNATURE
-#define WILTON_JNI_CLASS_SIGNATURE net/wiltontoolkit/WiltonJni
+#define WILTON_JNI_CLASS_SIGNATURE wilton/WiltonJni
 #endif // WILTON_JNI_CLASS_SIGNATURE
 #define WILTON_JNI_CLASS_SIGNATURE_STR WILTON_STR(WILTON_JNI_CLASS_SIGNATURE)
 
@@ -57,7 +57,7 @@
 
 // signature of the gateway interface
 #ifndef WILTON_JNI_GATEWAY_INTERFACE_SIGNATURE
-#define WILTON_JNI_GATEWAY_INTERFACE_SIGNATURE net/wiltontoolkit/WiltonGateway
+#define WILTON_JNI_GATEWAY_INTERFACE_SIGNATURE wilton/WiltonGateway
 #endif // WILTON_JNI_GATEWAY_INTERFACE_SIGNATURE
 #define WILTON_JNI_GATEWAY_INTERFACE_SIGNATURE_STR WILTON_STR(WILTON_JNI_GATEWAY_INTERFACE_SIGNATURE)
 
@@ -71,7 +71,7 @@
 
 // exception class signature
 #ifndef WILTON_JNI_EXCEPTION_CLASS_SIGNATURE
-#define WILTON_JNI_EXCEPTION_CLASS_SIGNATURE net/wiltontoolkit/WiltonException
+#define WILTON_JNI_EXCEPTION_CLASS_SIGNATURE wilton/WiltonException
 #endif // WILTON_JNI_EXCEPTION_CLASS_SIGNATURE
 #define WILTON_JNI_EXCEPTION_CLASS_SIGNATURE_STR WILTON_STR(WILTON_JNI_EXCEPTION_CLASS_SIGNATURE)
 

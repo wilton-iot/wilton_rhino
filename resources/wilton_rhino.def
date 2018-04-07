@@ -15,6 +15,6 @@
 EXPORTS
     JNI_OnLoad
     JNI_OnUnload
-    Java_net_wiltontoolkit_WiltonJni_initialize
-    Java_net_wiltontoolkit_WiltonJni_registerScriptGateway
-    Java_net_wiltontoolkit_WiltonJni_wiltoncall
+    Java_wilton_WiltonJni_initialize
+    Java_wilton_WiltonJni_registerScriptGateway
+    Java_wilton_WiltonJni_wiltoncall
