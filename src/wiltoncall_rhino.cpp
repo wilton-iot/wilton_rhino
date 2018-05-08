@@ -226,6 +226,12 @@ support::buffer runscript(sl::io::span<const char> data) {
     }
 }
 
+
+support::buffer rungc(sl::io::span<const char>) {
+    // todo: run System.gc()
+    return support::make_null_buffer();
+}
+
 } // namespace
 }
 
@@ -299,6 +305,7 @@ void JNICALL WILTON_JNI_FUNCTION(registerScriptGateway)
         ctx->set_gateway_object(env, gateway);
         auto name = wilton::rhino::jstring_to_str(env, engineName);
         wilton::support::register_wiltoncall("runscript_" + name, wilton::rhino::runscript);
+        wilton::support::register_wiltoncall("rungc_" + name, wilton::rhino::rungc);
     } catch (const std::exception& e) {
         env->ThrowNew(ctx->wiltonExceptionClass.get(),
                 TRACEMSG(e.what() + "\nWilton register error," +
